@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Gambling Website Blocker - PBL",
+  "version": "3.0.0",
+  "description": "Website content analysis and dual-mode gambling protection using C++ backend.",
+
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "http://127.0.0.1:8765/*",
+    "http://localhost:8765/*",
+    "<all_urls>"
+  ],
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Gambling Website Blocker"
+  }
+}

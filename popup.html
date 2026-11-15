@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gambling Website Blocker</title>
+  <style>
+    body {
+      width: 330px;
+      margin: 0;
+      padding: 16px;
+      font: 14px Arial, sans-serif;
+      background: #f5f7fa;
+      color: #17202a;
+    }
+    h2 { font-size: 18px; }
+    .card {
+      background: white;
+      border: 1px solid #dce2e8;
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .score { font-size: 32px; font-weight: bold; margin: 8px 0; }
+    .muted { color: #596579; font-size: 12px; overflow-wrap: anywhere; }
+    select, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 7px;
+    }
+    select { border: 1px solid #ccc; }
+    button {
+      border: 0;
+      background: #1f5eff;
+      color: white;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h2>Gambling Website Blocker</h2>
+
+  <div class="card">
+    <strong>Blocking Mode</strong>
+    <select id="mode">
+      <option value="warning">Warning Mode</option>
+      <option value="strict">Strict Mode</option>
+    </select>
+    <p id="modeInfo" class="muted"></p>
+    <button id="saveMode">Save Mode</button>
+    <hr>
+
+    <div id="title" class="muted">Waiting for page analysis...</div>
+    <div id="score" class="score">--/100</div>
+    <div id="status">No result yet</div>
+    <p id="url" class="muted"></p>
+    <strong>Evidence found</strong>
+    <ul id="reasons"></ul>
+    <p id="note" class="muted">Start the C++ backend before scanning.</p>
+  </div>
+
+  <button id="refresh">Refresh Result</button>
+  <script src="popup.js"></script>
+</body>
+</html>

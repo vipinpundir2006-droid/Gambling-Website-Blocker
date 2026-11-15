@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Website Blocked</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6fa;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 90vh;
+            margin: 0;
+        }
+
+        .card {
+            background: white;
+            width: 380px;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 4px 20px #0002;
+        }
+
+        h1 { color: #b42318; }
+
+        .score {
+            font-size: 45px;
+            font-weight: bold;
+            color: #b42318;
+        }
+
+        p { color: #555; overflow-wrap: anywhere; }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 12px;
+            border: 0;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        #continue {
+            background: #b7791f;
+            color: white;
+        }
+
+        #leave {
+            background: #333;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h1 id="heading">Website Warning!</h1>
+
+        <div class="score" id="score">--/100</div>
+
+        <p id="message">
+            Multiple gambling-related signals were detected.
+        </p>
+
+        <p id="website"></p>
+
+        <button id="continue">Continue Once</button>
+        <button id="leave">Leave Website</button>
+    </div>
+
+    <script src="blocked.js"></script>
+</body>
+</html>
