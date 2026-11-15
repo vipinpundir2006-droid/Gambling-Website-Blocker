@@ -1,3 +1,4 @@
+
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -7,13 +8,14 @@
 #include <memory>
 #include <algorithm>
 #include <cctype>
+#include <regex>
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 using namespace std;
 
 // ==========================================
-// 1. EVIDENCE STRUCTURE
+// 1. EVIDENCE AND RESULT STRUCTURES
 // ==========================================
 
 struct Evidence {
@@ -30,7 +32,7 @@ struct Evidence {
     int walletSignals = 0;
     int casinoTerms = 0;
 
-    // Game-specific signals
+    // Game-specific evidence
     int aviatorSignals = 0;
     int vortexSignals = 0;
     int minesSignals = 0;
@@ -46,6 +48,14 @@ struct Evidence {
     int gameControls = 0;
 
     string url;
+
+    // Raw page information from Chrome
+    string pageText;
+    string clickableLabels;
+    string inputHints;
+    string marketHints;
+    string frameHints;
+    string formHints;
 };
 
 struct AnalysisResult {
@@ -61,7 +71,7 @@ struct ScanRecord {
 };
 
 // ==========================================
-// 2. URL DECODING
+// 2. URL DECODING AND FORM PARSING
 // ==========================================
 
 string urlDecode(const string &s) {
@@ -104,23 +114,189 @@ map<string, string> parseForm(const string &body) {
 
 int getNumber(const map<string, string> &v,
               const string &key) {
-
     map<string, string>::const_iterator it = v.find(key);
 
     if (it == v.end()) return 0;
 
-    char *end = NULL;
-    long n = strtol(it->second.c_str(), &end, 10);
+    int n = atoi(it->second.c_str());
 
-    if (end == it->second.c_str()) return 0;
     if (n < 0) return 0;
     if (n > 1000) return 1000;
 
-    return (int)n;
+    return n;
+}
+
+string formValue(const map<string, string> &fields,
+                 const string &key) {
+    map<string, string>::const_iterator it = fields.find(key);
+
+    return it == fields.end() ? string() : it->second;
 }
 
 // ==========================================
-// 3. DOMAIN EXTRACTION
+// 3. C++ PAGE FEATURE EXTRACTION
+// ==========================================
+
+int countPattern(const string &text,
+                 const string &pattern,
+                 int limit = 1000) {
+    if (text.empty()) return 0;
+
+    try {
+        const regex expression(pattern, regex_constants::icase);
+
+        int count = 0;
+
+        auto begin = sregex_iterator(
+            text.begin(), text.end(), expression);
+
+        auto end = sregex_iterator();
+
+        for (auto it = begin; it != end && count < limit; ++it) {
+            ++count;
+        }
+
+        return count;
+    }
+    catch (const regex_error &) {
+        return 0;
+    }
+}
+
+void extractPageEvidence(Evidence &e) {
+
+    const string odds =
+        R"(\b(?:1\.[1-9]\d?|2\.[0-9]{1,2}|[3-9]\.[0-9]{1,2}|10\.0)\b)";
+
+    const string actions =
+        R"(\b(place bet|bet now|add to bet slip|confirm bet|submit bet|back this selection|bet slip|cash out)\b)";
+
+    const string gambling =
+        R"(\b(sportsbook|sports betting|bookmaker|gambling|wager|betting|bet slip|live betting|odds|jackpot|roulette|blackjack|baccarat|poker|slot machine|casino|lottery|win go|trx win go|k3|5d|rummy|fishing|rtp|live casino)\b)";
+
+    const string casino =
+        R"(\b(casino|roulette|blackjack|baccarat|slots|slot machine|jackpot|live casino|lottery|win go|trx win go|k3|5d|rummy|fishing)\b)";
+
+    e.oddsPatterns = countPattern(e.pageText, odds, 100);
+    e.betActions = countPattern(e.pageText, actions, 50);
+    e.gamblingTerms = countPattern(e.pageText, gambling, 100);
+    e.casinoTerms = countPattern(e.pageText, casino, 100);
+
+    e.bettingControls = countPattern(
+        e.clickableLabels,
+        R"(place bet|bet now|add to bet slip|confirm bet|submit bet|back this selection|select odds|bet slip)",
+        50
+    );
+
+    e.clickableOdds = countPattern(
+        e.clickableLabels, odds, 100
+    );
+
+    e.stakeInputs = countPattern(
+        e.inputHints,
+        R"(stake|wager|bet amount|amount to bet)",
+        50
+    );
+
+    e.marketGroups = countPattern(
+        e.marketHints,
+        R"(market|event|fixture|match)",
+        100
+    );
+
+    e.depositActions = countPattern(
+        e.pageText,
+        R"(\b(deposit funds|make a deposit|add funds|top up wallet|withdraw winnings|deposit|withdraw)\b)",
+        50
+    );
+
+    e.walletSignals = countPattern(
+        e.pageText,
+        R"(\b(wallet balance|my wallet|add money|available balance|account balance|deposit|withdraw)\b)",
+        50
+    );
+
+    e.casinoEmbeds = countPattern(
+        e.frameHints,
+        R"(slot|roulette|blackjack|casino|live.?game|game.?provider)",
+        20
+    );
+
+    e.paymentForms = countPattern(
+        e.formHints,
+        R"(card number|payment method|upi|wallet|deposit|add funds)",
+        20
+    );
+
+    // Combine all available page information
+    string allContent =
+        e.pageText + " " +
+        e.clickableLabels + " " +
+        e.inputHints + " " +
+        e.marketHints + " " +
+        e.frameHints + " " +
+        e.formHints;
+
+    // Game-specific detection
+    e.aviatorSignals = countPattern(
+        allContent,
+        R"(\baviator\b|crash game|aviator game)"
+    );
+
+    e.vortexSignals = countPattern(
+        allContent,
+        R"(\bvortex\b|vortex game)"
+    );
+
+    e.minesSignals = countPattern(
+        allContent,
+        R"(\bmines\b|mine game|minefield)"
+    );
+
+    e.chickenRoadSignals = countPattern(
+        allContent,
+        R"(\bchicken road\b|chickenroad)"
+    );
+
+    // Game mechanics
+    e.multiplierSignals = countPattern(
+        allContent,
+        R"(\b[0-9]+(\.[0-9]+)?x\b|multiplier)"
+    );
+
+    e.cashoutSignals = countPattern(
+        allContent,
+        R"(\bcash out\b|cashout|collect winnings)"
+    );
+
+    e.mineGridSignals = countPattern(
+        allContent,
+        R"(\bmine grid\b|minefield|tile grid)"
+    );
+
+    e.safeTileSignals = countPattern(
+        allContent,
+        R"(\bsafe tile\b|safe tiles|pick a tile)"
+    );
+
+    e.roundSignals = countPattern(
+        allContent,
+        R"(\bnext round\b|start round|new round)"
+    );
+
+    e.payoutSignals = countPattern(
+        allContent,
+        R"(\bpayout\b|win amount|potential winnings|profit)"
+    );
+
+    e.gameControls = countPattern(
+        allContent,
+        R"(\bauto play\b|manual play|start game|play now|bet amount)"
+    );
+}
+
+// ==========================================
+// 4. DOMAIN EXTRACTION
 // ==========================================
 
 string getDomain(string url) {
@@ -166,7 +342,7 @@ string getDomain(string url) {
 }
 
 // ==========================================
-// 4. TRIE DATA STRUCTURE
+// 5. TRIE DATA STRUCTURE
 // ==========================================
 
 class Trie {
@@ -246,7 +422,7 @@ public:
 };
 
 // ==========================================
-// 5. HASH TABLE
+// 6. CUSTOM HASH TABLE
 // ==========================================
 
 class DomainHashTable {
@@ -308,6 +484,7 @@ public:
         }
 
         HashNode* newNode = new HashNode(domain);
+
         newNode->next = table[index];
         table[index] = newNode;
     }
@@ -318,7 +495,10 @@ public:
         HashNode* current = table[index];
 
         while (current != NULL) {
-            if (current->domain == domain) return true;
+            if (current->domain == domain) {
+                return true;
+            }
+
             current = current->next;
         }
 
@@ -329,11 +509,15 @@ public:
 
         while (!domain.empty()) {
 
-            if (search(domain)) return true;
+            if (search(domain)) {
+                return true;
+            }
 
             size_t dot = domain.find('.');
 
-            if (dot == string::npos) break;
+            if (dot == string::npos) {
+                break;
+            }
 
             domain = domain.substr(dot + 1);
         }
@@ -343,7 +527,7 @@ public:
 };
 
 // ==========================================
-// 6. STACK
+// 7. STACK DATA STRUCTURE
 // ==========================================
 
 template <typename T>
@@ -370,11 +554,16 @@ public:
     }
 
     void pop() {
-        if (!items.empty()) items.pop_back();
+        if (!items.empty()) {
+            items.pop_back();
+        }
     }
 
     T top() const {
-        if (!items.empty()) return items.back();
+        if (!items.empty()) {
+            return items.back();
+        }
+
         return T();
     }
 
@@ -388,7 +577,7 @@ public:
 };
 
 // ==========================================
-// 7. QUEUE
+// 8. QUEUE DATA STRUCTURE
 // ==========================================
 
 template <typename T>
@@ -426,7 +615,6 @@ public:
     }
 
     void enqueue(const T &value) {
-
         Node* newNode = new Node(value);
 
         if (rearNode == NULL) {
@@ -442,7 +630,9 @@ public:
 
     bool dequeue(T &value) {
 
-        if (frontNode == NULL) return false;
+        if (frontNode == NULL) {
+            return false;
+        }
 
         Node* temp = frontNode;
 
@@ -470,18 +660,20 @@ public:
 };
 
 // ==========================================
-// 8. CONTENT ANALYSIS
+// 9. CONTENT SCORING ENGINE
 // ==========================================
 
 AnalysisResult evaluateContent(const Evidence &e) {
 
     AnalysisResult r;
 
-    // Decimal odds
+    // 1. Decimal odds
+
     if (e.oddsPatterns >= 3 &&
         (e.betActions > 0 || e.bettingControls > 0)) {
 
         r.score += 20;
+
         r.reasons.push_back(
             "Multiple decimal odds with betting context found");
     }
@@ -489,56 +681,68 @@ AnalysisResult evaluateContent(const Evidence &e) {
              (e.betActions > 0 || e.bettingControls > 0)) {
 
         r.score += 8;
+
         r.reasons.push_back(
             "Decimal odds with betting context found");
     }
 
-    // Betting actions
+    // 2. Betting actions
+
     if (e.betActions > 0) {
         r.score += 20;
         r.reasons.push_back("Betting actions found");
     }
 
-    // Stake inputs
+    // 3. Stake inputs
+
     if (e.stakeInputs > 0) {
         r.score += 15;
         r.reasons.push_back("Stake input found");
     }
 
-    // Market groups
+    // 4. Market groups
+
     if (e.marketGroups >= 3 &&
         (e.betActions > 0 || e.bettingControls > 0)) {
 
         r.score += 15;
+
         r.reasons.push_back(
             "Multiple betting market groups found");
     }
 
-    // Deposit and withdrawal
+    // 5. Deposit and withdrawal
+
     if (e.depositActions > 0) {
         r.score += 8;
+
         r.reasons.push_back(
             "Deposit or withdrawal actions found");
     }
 
-    // Casino embeds
+    // 6. Casino embeds
+
     if (e.casinoEmbeds > 0) {
         r.score += 20;
         r.reasons.push_back("Casino game embed found");
     }
 
-    // Payment forms
+    // 7. Payment forms
+
     if (e.paymentForms > 0 &&
         (e.depositActions > 0 || e.casinoTerms >= 3)) {
 
         r.score += 5;
+
         r.reasons.push_back(
             "Payment form with gambling indicators found");
     }
 
-    // Gambling terminology
+    // 8. Gambling terminology
+
     if (e.gamblingTerms >= 10) {
         r.score += 15;
+
         r.reasons.push_back(
             "High concentration of gambling terms");
     }
@@ -551,37 +755,46 @@ AnalysisResult evaluateContent(const Evidence &e) {
         r.reasons.push_back("Some gambling terms found");
     }
 
-    // Betting controls
+    // 9. Interactive betting controls
+
     if (e.bettingControls > 0) {
         r.score += 20;
+
         r.reasons.push_back(
             "Interactive betting controls found");
     }
 
-    // Clickable odds
+    // 10. Clickable odds
+
     if (e.clickableOdds >= 2 &&
         (e.betActions > 0 || e.bettingControls > 0)) {
 
         r.score += 15;
+
         r.reasons.push_back(
             "Multiple clickable odds with betting context found");
     }
 
-    // Wallet signals
+    // 11. Wallet signals
+
     if (e.walletSignals >= 3 && e.depositActions > 0) {
         r.score += 10;
+
         r.reasons.push_back(
             "Wallet signals combined with deposit activity");
     }
 
-    // Casino terminology
+    // 12. Casino and lottery terminology
+
     if (e.casinoTerms >= 8) {
         r.score += 20;
+
         r.reasons.push_back(
             "Strong casino and lottery indicators found");
     }
     else if (e.casinoTerms >= 3) {
         r.score += 12;
+
         r.reasons.push_back(
             "Multiple casino-related terms found");
     }
@@ -590,105 +803,107 @@ AnalysisResult evaluateContent(const Evidence &e) {
         r.reasons.push_back("Casino-related terms found");
     }
 
-    // Strong combinations
+    // 13. Strong combinations
+
     if (e.oddsPatterns > 0 && e.betActions > 0) {
         r.score += 10;
+
         r.reasons.push_back(
             "Odds and betting actions occur together");
     }
 
     if (e.stakeInputs > 0 && e.betActions > 0) {
         r.score += 10;
+
         r.reasons.push_back(
             "Stake and betting actions occur together");
     }
 
     if (e.clickableOdds > 0 && e.bettingControls > 0) {
         r.score += 10;
+
         r.reasons.push_back(
             "Clickable odds and betting controls occur together");
     }
 
+    // 14. Multiple independent indicators
+
     if (e.gamblingTerms >= 10 && e.casinoTerms >= 8) {
         r.score += 15;
+
         r.reasons.push_back(
             "Strong combination of gambling and casino indicators");
     }
 
     if (e.casinoTerms >= 8 && e.depositActions > 0) {
         r.score += 10;
+
         r.reasons.push_back(
             "Casino indicators combined with deposit activity");
     }
 
-    // Game-specific detection
-    int gameCount = 0;
+    // 15. Specific gambling games
 
-    if (e.aviatorSignals > 0) gameCount++;
-    if (e.vortexSignals > 0) gameCount++;
-    if (e.minesSignals > 0) gameCount++;
-    if (e.chickenRoadSignals > 0) gameCount++;
-
-    if (gameCount >= 1) {
-        r.score += 15;
-        r.reasons.push_back(
-            "Recognized gambling-style game signals found");
-    }
-
-    if (gameCount >= 2) {
-        r.score += 15;
-        r.reasons.push_back(
-            "Multiple gambling game patterns detected");
-    }
-
-    // Multiplier and cashout
-    if (e.multiplierSignals > 0 &&
-        e.cashoutSignals > 0) {
-
+    if (e.aviatorSignals > 0) {
         r.score += 20;
-        r.reasons.push_back(
-            "Multiplier and cashout mechanics detected");
+        r.reasons.push_back("Aviator game detected");
     }
 
-    // Mines grid and safe tiles
-    if (e.mineGridSignals > 0 &&
-        e.safeTileSignals > 0) {
-
+    if (e.vortexSignals > 0) {
         r.score += 20;
-        r.reasons.push_back(
-            "Mine grid and safe tile mechanics detected");
+        r.reasons.push_back("Vortex game detected");
     }
 
-    // Game controls with monetary activity
+    if (e.minesSignals > 0) {
+        r.score += 20;
+        r.reasons.push_back("Mines game detected");
+    }
+
+    if (e.chickenRoadSignals > 0) {
+        r.score += 20;
+        r.reasons.push_back("Chicken Road game detected");
+    }
+
+    // 16. Game mechanics
+
+    if (e.multiplierSignals > 0) {
+        r.score += 10;
+        r.reasons.push_back("Game multiplier signals found");
+    }
+
+    if (e.cashoutSignals > 0) {
+        r.score += 10;
+        r.reasons.push_back("Cashout mechanism detected");
+    }
+
+    if (e.mineGridSignals > 0 && e.safeTileSignals > 0) {
+        r.score += 15;
+
+        r.reasons.push_back(
+            "Mines grid and safe tile mechanics found");
+    }
+
+    if (e.roundSignals > 0 && e.payoutSignals > 0) {
+        r.score += 10;
+
+        r.reasons.push_back(
+            "Round and payout mechanics detected");
+    }
+
     if (e.gameControls > 0 &&
-        (e.payoutSignals > 0 || e.stakeInputs > 0)) {
+        (e.multiplierSignals > 0 || e.cashoutSignals > 0)) {
 
-        r.score += 15;
+        r.score += 10;
+
         r.reasons.push_back(
-            "Game controls with monetary activity detected");
-    }
-
-    // Multiple game mechanics
-    int mechanics = 0;
-
-    if (e.multiplierSignals > 0) mechanics++;
-    if (e.cashoutSignals > 0) mechanics++;
-    if (e.mineGridSignals > 0) mechanics++;
-    if (e.safeTileSignals > 0) mechanics++;
-    if (e.roundSignals > 0) mechanics++;
-    if (e.payoutSignals > 0) mechanics++;
-
-    if (mechanics >= 3) {
-        r.score += 15;
-        r.reasons.push_back(
-            "Multiple gambling game mechanics detected");
+            "Interactive gambling game controls found");
     }
 
     return r;
 }
 
 // ==========================================
-// 9. OOPS RISK RULE
+// 10. OOPS: ABSTRACTION AND POLYMORPHISM
 // ==========================================
 
 class RiskRule {
@@ -706,7 +921,7 @@ public:
 };
 
 // ==========================================
-// 10. CONTENT RISK RULE
+// CONTENT RISK RULE
 // ==========================================
 
 class ContentRiskRule : public RiskRule {
@@ -731,7 +946,7 @@ public:
 };
 
 // ==========================================
-// 11. DOMAIN RISK RULE
+// DOMAIN RISK RULE
 // ==========================================
 
 class DomainRiskRule : public RiskRule {
@@ -749,13 +964,19 @@ public:
 
         if (domain.empty()) return;
 
+        // Direct known gambling domain detection
+
         if (domains.containsDomainOrParent(domain)) {
 
-            result.score += 65;
+            result.score = 100;
 
             result.reasons.push_back(
-                "Domain found in known domain database");
+                "Known gambling domain detected");
+
+            return;
         }
+
+        // Check domain labels using Trie
 
         stringstream ss(domain);
         string label;
@@ -774,7 +995,7 @@ public:
 };
 
 // ==========================================
-// 12. RISK ENGINE
+// 11. RISK ENGINE
 // ==========================================
 
 class RiskEngine {
@@ -786,50 +1007,12 @@ private:
 
     vector<unique_ptr<RiskRule>> rules;
 
-    // Check exact domain and its subdomains
-    bool isKnownGamblingDomain(string url) const {
-
-        string domain = getDomain(url);
-
-        const string knownDomains[] = {
-            "jalwaclub3.com",
-            "tgdream.pro",
-            "2okwin6.com",
-            "ok-win.ai",
-            "tiranagam.ai",
-            "jalwav.com"
-        };
-
-        for (int i = 0; i < 6; i++) {
-
-            string known = knownDomains[i];
-
-            // Exact match
-            if (domain == known) {
-                return true;
-            }
-
-            // Subdomain match
-            if (domain.size() > known.size() &&
-                domain.compare(
-                    domain.size() - known.size(),
-                    known.size(),
-                    known
-                ) == 0 &&
-                domain[domain.size() - known.size() - 1] == '.') {
-
-                return true;
-            }
-        }
-
-        return false;
-    }
-
 public:
 
     RiskEngine() {
 
-        // Trie keywords
+        // Domain keywords
+
         keywordTrie.insert("casino");
         keywordTrie.insert("bet");
         keywordTrie.insert("betting");
@@ -838,6 +1021,9 @@ public:
         keywordTrie.insert("sportsbook");
         keywordTrie.insert("roulette");
         keywordTrie.insert("slots");
+
+        // Game keywords
+
         keywordTrie.insert("aviator");
         keywordTrie.insert("mines");
         keywordTrie.insert("vortex");
@@ -850,7 +1036,8 @@ public:
         keywordTrie.insert("stake");
         keywordTrie.insert("crash");
 
-        // Six known domains
+        // Previously used gambling domains
+
         blockedDomains.insert("jalwaclub3.com");
         blockedDomains.insert("tgdream.pro");
         blockedDomains.insert("2okwin6.com");
@@ -859,6 +1046,7 @@ public:
         blockedDomains.insert("jalwav.com");
 
         // OOPS polymorphism
+
         rules.push_back(
             unique_ptr<RiskRule>(new ContentRiskRule()));
 
@@ -870,23 +1058,6 @@ public:
 
         AnalysisResult result;
 
-        // PRIORITY 1: Known domain detection
-        if (isKnownGamblingDomain(e.url)) {
-
-            result.score = 100;
-
-            result.status = "HIGH RISK - LIKELY GAMBLING";
-
-            result.reasons.push_back(
-                "Known gambling domain matched");
-
-            result.reasons.push_back(
-                "Exact domain or subdomain blacklist detection");
-
-            return result;
-        }
-
-        // PRIORITY 2: Content and domain analysis
         for (size_t i = 0; i < rules.size(); i++) {
 
             rules[i]->apply(
@@ -897,7 +1068,6 @@ public:
             result.score = 100;
         }
 
-        // Classification
         if (result.score >= 60) {
             result.status = "HIGH RISK - LIKELY GAMBLING";
         }
@@ -913,7 +1083,7 @@ public:
 };
 
 // ==========================================
-// 13. JSON RESPONSE
+// 12. JSON ESCAPING AND RESPONSE
 // ==========================================
 
 string jsonEscape(const string &s) {
@@ -960,7 +1130,7 @@ string makeJson(const AnalysisResult &r) {
 }
 
 // ==========================================
-// 14. HTTP RESPONSE
+// 13. HTTP RESPONSE
 // ==========================================
 
 void sendResponse(
@@ -973,6 +1143,7 @@ void sendResponse(
     ostringstream response;
 
     response << "HTTP/1.1 " << code << " " << status << "\r\n";
+
     response << "Content-Type: application/json; charset=utf-8\r\n";
     response << "Access-Control-Allow-Origin: *\r\n";
     response << "Access-Control-Allow-Methods: POST, OPTIONS\r\n";
@@ -1002,8 +1173,10 @@ void sendResponse(
 }
 
 // ==========================================
-// 15. MAIN SERVER
+// 14. MAIN SERVER
 // ==========================================
+
+#ifndef GWB_TESTING
 
 int main() {
 
@@ -1012,6 +1185,7 @@ int main() {
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
 
         cout << "Winsock startup failed.\n";
+
         return 1;
     }
 
@@ -1024,7 +1198,9 @@ int main() {
     if (serverSocket == INVALID_SOCKET) {
 
         cout << "Could not create server socket.\n";
+
         WSACleanup();
+
         return 1;
     }
 
@@ -1058,28 +1234,24 @@ int main() {
         return 1;
     }
 
-    // Risk engine
     RiskEngine engine;
 
-    // DSA: Stack
+    // DSA: Scan history stack
+
     Stack<ScanRecord> scanHistory(100);
 
-    // DSA: Queue
+    // DSA: Request processing queue
+
     Queue<Evidence> scanQueue;
 
-    cout << "\n====================================\n";
-    cout << " GAMBLING WEBSITE BLOCKER BACKEND\n";
-    cout << "====================================\n";
-
-    cout << "Listening: 127.0.0.1:8765\n";
+    cout << "\nGAMBLING WEBSITE BLOCKER BACKEND\n";
+    cout << "Listening on 127.0.0.1:8765\n";
     cout << "Trie: Ready\n";
     cout << "Hash Table: Ready\n";
     cout << "Stack: Ready\n";
     cout << "Queue: Ready\n";
     cout << "OOPS Risk Engine: Ready\n";
-
-    cout << "Known domains: 6\n";
-    cout << "Game detection: Ready\n";
+    cout << "Game Detection: Ready\n";
     cout << "Keep this window open.\n\n";
 
     while (true) {
@@ -1091,10 +1263,13 @@ int main() {
         }
 
         string request;
+
         char buffer[4096];
+
         int received;
 
-        // Read headers
+        // Read HTTP headers
+
         do {
 
             received = recv(
@@ -1126,13 +1301,16 @@ int main() {
             );
 
             closesocket(client);
+
             continue;
         }
 
         string headers = request.substr(0, headerEnd);
+
         string body = request.substr(headerEnd + 4);
 
-        // OPTIONS request
+        // Handle OPTIONS request
+
         if (headers.find("OPTIONS ") == 0) {
 
             sendResponse(
@@ -1143,10 +1321,12 @@ int main() {
             );
 
             closesocket(client);
+
             continue;
         }
 
-        // Only POST /analyze
+        // Accept only POST /analyze
+
         if (headers.find("POST /analyze ") != 0) {
 
             sendResponse(
@@ -1157,10 +1337,12 @@ int main() {
             );
 
             closesocket(client);
+
             continue;
         }
 
-        // Content-Length
+        // Read Content-Length
+
         size_t contentPos = headers.find("Content-Length:");
 
         int contentLength = 0;
@@ -1172,7 +1354,7 @@ int main() {
             );
         }
 
-        if (contentLength < 0 || contentLength > 32768) {
+        if (contentLength < 0 || contentLength > 65536) {
 
             sendResponse(
                 client,
@@ -1182,10 +1364,12 @@ int main() {
             );
 
             closesocket(client);
+
             continue;
         }
 
-        // Read remaining body
+        // Read remaining request body
+
         while ((int)body.size() < contentLength) {
 
             received = recv(
@@ -1210,10 +1394,11 @@ int main() {
             );
 
             closesocket(client);
+
             continue;
         }
 
-        if ((int)body.size() > 32768) {
+        if (body.size() > 65536) {
 
             sendResponse(
                 client,
@@ -1223,68 +1408,95 @@ int main() {
             );
 
             closesocket(client);
+
             continue;
         }
 
         // Parse form data
+
         map<string, string> fields = parseForm(body);
 
         Evidence e;
 
-        e.oddsPatterns = getNumber(fields, "odds");
-        e.betActions = getNumber(fields, "betActions");
-        e.stakeInputs = getNumber(fields, "stakeInputs");
-        e.marketGroups = getNumber(fields, "marketGroups");
-        e.depositActions = getNumber(fields, "depositActions");
-        e.casinoEmbeds = getNumber(fields, "casinoEmbeds");
-        e.paymentForms = getNumber(fields, "paymentForms");
+        // Receive raw page information
 
-        e.gamblingTerms = getNumber(fields, "gamblingTerms");
-        e.bettingControls = getNumber(fields, "bettingControls");
-        e.clickableOdds = getNumber(fields, "clickableOdds");
-        e.walletSignals = getNumber(fields, "walletSignals");
-        e.casinoTerms = getNumber(fields, "casinoTerms");
+        e.pageText = formValue(fields, "pageText");
+        e.clickableLabels = formValue(fields, "clickableLabels");
+        e.inputHints = formValue(fields, "inputHints");
+        e.marketHints = formValue(fields, "marketHints");
+        e.frameHints = formValue(fields, "frameHints");
+        e.formHints = formValue(fields, "formHints");
 
-        // Game-specific fields
-        e.aviatorSignals = getNumber(fields, "aviatorSignals");
-        e.vortexSignals = getNumber(fields, "vortexSignals");
-        e.minesSignals = getNumber(fields, "minesSignals");
-        e.chickenRoadSignals = getNumber(fields, "chickenRoadSignals");
+        // Backward compatibility with numeric evidence
 
-        // Game mechanics
-        e.multiplierSignals = getNumber(fields, "multiplierSignals");
-        e.cashoutSignals = getNumber(fields, "cashoutSignals");
-        e.mineGridSignals = getNumber(fields, "mineGridSignals");
-        e.safeTileSignals = getNumber(fields, "safeTileSignals");
-        e.roundSignals = getNumber(fields, "roundSignals");
-        e.payoutSignals = getNumber(fields, "payoutSignals");
-        e.gameControls = getNumber(fields, "gameControls");
+        if (e.pageText.empty()) {
 
-        // Receive URL
-        if (fields.find("url") != fields.end()) {
-            e.url = fields["url"];
+            e.oddsPatterns = getNumber(fields, "odds");
+            e.betActions = getNumber(fields, "betActions");
+            e.stakeInputs = getNumber(fields, "stakeInputs");
+            e.marketGroups = getNumber(fields, "marketGroups");
+            e.depositActions = getNumber(fields, "depositActions");
+            e.casinoEmbeds = getNumber(fields, "casinoEmbeds");
+            e.paymentForms = getNumber(fields, "paymentForms");
+            e.gamblingTerms = getNumber(fields, "gamblingTerms");
+            e.bettingControls = getNumber(fields, "bettingControls");
+            e.clickableOdds = getNumber(fields, "clickableOdds");
+            e.walletSignals = getNumber(fields, "walletSignals");
+            e.casinoTerms = getNumber(fields, "casinoTerms");
+
+            // Game-specific numeric compatibility
+
+            e.aviatorSignals = getNumber(fields, "aviatorSignals");
+            e.vortexSignals = getNumber(fields, "vortexSignals");
+            e.minesSignals = getNumber(fields, "minesSignals");
+            e.chickenRoadSignals = getNumber(fields, "chickenRoadSignals");
+
+            e.multiplierSignals = getNumber(fields, "multiplierSignals");
+            e.cashoutSignals = getNumber(fields, "cashoutSignals");
+            e.mineGridSignals = getNumber(fields, "mineGridSignals");
+            e.safeTileSignals = getNumber(fields, "safeTileSignals");
+            e.roundSignals = getNumber(fields, "roundSignals");
+            e.payoutSignals = getNumber(fields, "payoutSignals");
+            e.gameControls = getNumber(fields, "gameControls");
         }
-        else if (fields.find("pageUrl") != fields.end()) {
-            e.url = fields["pageUrl"];
-        }
-        else if (fields.find("page_url") != fields.end()) {
-            e.url = fields["page_url"];
+
+        // Receive URL from Chrome extension
+
+        e.url = formValue(fields, "url");
+
+        if (e.url.empty()) {
+            e.url = formValue(fields, "pageUrl");
         }
 
-        // Queue processing
+        if (e.url.empty()) {
+            e.url = formValue(fields, "page_url");
+        }
+
+        // C++ performs page analysis
+
+        if (!e.pageText.empty()) {
+            extractPageEvidence(e);
+        }
+
+        // Add request to Queue
+
         scanQueue.enqueue(e);
 
         Evidence currentEvidence;
 
         if (!scanQueue.dequeue(currentEvidence)) {
+
             closesocket(client);
+
             continue;
         }
 
-        // Analyze
+        // Analyze using OOPS Risk Engine
+
         AnalysisResult result = engine.analyze(currentEvidence);
 
-        // Stack history
+        // Store result in Stack
+
         ScanRecord record;
 
         record.url = currentEvidence.url;
@@ -1294,24 +1506,16 @@ int main() {
         scanHistory.push(record);
 
         // Console output
-        cout << "\nScanned page: "
-             << currentEvidence.url << "\n";
 
-        cout << "Domain: "
-             << getDomain(currentEvidence.url) << "\n";
+        cout << "Scanned page: "
+             << getDomain(currentEvidence.url)
+             << " | Score: " << result.score
+             << " | " << result.status
+             << " | History: " << scanHistory.size()
+             << "\n";
 
-        cout << "Score: "
-             << result.score << "\n";
+        // Send JSON to extension
 
-        cout << "Status: "
-             << result.status << "\n";
-
-        cout << "History: "
-             << scanHistory.size() << "\n";
-
-        cout << "-----------------------------\n";
-
-        // Send response
         sendResponse(
             client,
             200,
@@ -1323,7 +1527,10 @@ int main() {
     }
 
     closesocket(serverSocket);
+
     WSACleanup();
 
     return 0;
 }
+
+#endif // GWB_TESTING
