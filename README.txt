@@ -1,12 +1,12 @@
 THE GAMBLING WEBSITE BLOCKER V2 - PBL PROTOTYPE
-=============================================
+==============================================
 
 WHAT THIS PROJECT DOES
 - Chrome extension inspects the currently loaded page's DOM structure.
 - It looks for combinations of evidence: odds-like values, bet actions,
   stake inputs, repeated market/event containers, deposit actions,
   casino-game embeds and payment forms.
-- It sends numeric evidence counts to a C++ backend running on 127.0.0.1.
+- It sends numeric evidence counts to a C++ backend running on 127.0.0.11.
 - The C++ backend calculates a heuristic score and returns reasons.
 - The extension displays the result in its popup and toolbar badge.
 
