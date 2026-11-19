@@ -64,3 +64,4 @@ The browser extension performs client-side feature extraction from the DOM.
 The C++ backend performs weighted evidence evaluation. The score is based on
 multiple page features and combinations, not the domain name. The extension
 uses a MutationObserver to Re-Analyse pages when dynamic page content changes.
+Project Done by all
