@@ -1,5 +1,5 @@
 THE GAMBLING WEBSITE BLOCKER v2 - PBL PROTOTYPE
-===========================================
+============================================
 
 WHAT THIS PROJECT DOES
 - Chrome extension inspects the currently loaded page's DOM structure.
